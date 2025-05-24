@@ -2,50 +2,48 @@ pipeline {
     agent any
 
     environment {
-        // Example: define environment variables if needed
-        NODE_ENV = 'production'
+        AWS_ACCESS_KEY_ID = credentials('aws-access-key') 
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
     }
 
     stages {
-        stage('Clone Repo') {
+        stage('Terraform Init') {
             steps {
-                echo 'Cloning repository...'
-                // Code checkout is usually handled automatically if using Multibranch Pipeline
+                dir('terraform') {
+                    sh 'terraform init'
+                }
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Terraform Apply') {
             steps {
-                echo 'npm install' // Change this based on your project type
+                dir('terraform') {
+                    sh 'terraform apply -auto-approve'
+                }
             }
         }
 
-        stage('Run Tests') {
+        stage('Wait for EC2') {
             steps {
-                echo 'npm test' // or use your test framework
+                echo 'Waiting 60 seconds for EC2 instance to be ready...'
+                sleep 60
             }
         }
 
-        stage('Build') {
+        stage('Ansible Setup and Execute') {
             steps {
-                echo 'npm run build' // or your specific build command
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                echo 'Deploying...'
-                // Your deployment logic (rsync, ssh, ftp, docker, etc.)
+                dir('ansible') {
+                    sh '''
+                    ansible-playbook -i inventory.ini playbook.yml
+                    '''
+                }
             }
         }
     }
 
     post {
-        success {
-            echo 'Pipeline completed successfully.'
-        }
-        failure {
-            echo 'Pipeline failed.'
+        always {
+            echo 'Pipeline finished.'
         }
     }
 }
