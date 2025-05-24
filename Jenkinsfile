@@ -23,6 +23,13 @@ pipeline {
             }
         }
 
+        stage('Generate Ansible Inventory') {
+    steps {
+        sh './generate_inventory.sh'
+    }
+}
+
+        
         stage('Wait for EC2') {
             steps {
                 echo 'Waiting 60 seconds for EC2 instance to be ready...'
