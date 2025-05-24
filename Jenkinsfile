@@ -1,27 +1,19 @@
 pipeline {
     agent any
 
-    stages {
-        stage('Terraform Init') {
-            steps {
-                dir('terraform') {
-                    withCredentials([
-                        string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
-                        string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
-                    ]) {
-                        sh 'terraform init'
-                    }
-                }
-            }
-        }
+    environment {
+        AWS_REGION = 'us-east-1' // or your desired region
+    }
 
-        stage('Terraform Apply') {
+    stages {
+        stage('Terraform Init and Apply') {
             steps {
-                dir('terraform') {
-                    withCredentials([
-                        string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
-                        string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
-                    ]) {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-access-key'
+                ]]) {
+                    dir('terraform') {
+                        sh 'terraform init'
                         sh 'terraform apply -auto-approve'
                     }
                 }
@@ -44,9 +36,7 @@ pipeline {
         stage('Ansible Setup and Execute') {
             steps {
                 dir('ansible') {
-                    sh '''
-                    ansible-playbook -i inventory.ini playbook.yml
-                    '''
+                    sh 'ansible-playbook -i inventory.ini playbook.yml'
                 }
             }
         }
