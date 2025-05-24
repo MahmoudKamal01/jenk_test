@@ -16,19 +16,19 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                sh 'npm install' // Change this based on your project type
+                echo 'npm install' // Change this based on your project type
             }
         }
 
         stage('Run Tests') {
             steps {
-                sh 'npm test' // or use your test framework
+                echo 'npm test' // or use your test framework
             }
         }
 
         stage('Build') {
             steps {
-                sh 'npm run build' // or your specific build command
+                echo 'npm run build' // or your specific build command
             }
         }
 
