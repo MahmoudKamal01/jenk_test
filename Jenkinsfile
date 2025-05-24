@@ -1,16 +1,16 @@
 pipeline {
     agent any
 
-    environment {
-        AWS_ACCESS_KEY_ID = credentials('aws-access-key') 
-        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
-    }
-
     stages {
         stage('Terraform Init') {
             steps {
                 dir('terraform') {
-                    sh 'terraform init'
+                    withCredentials([
+                        string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh 'terraform init'
+                    }
                 }
             }
         }
@@ -18,18 +18,22 @@ pipeline {
         stage('Terraform Apply') {
             steps {
                 dir('terraform') {
-                    sh 'terraform apply -auto-approve'
+                    withCredentials([
+                        string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh 'terraform apply -auto-approve'
+                    }
                 }
             }
         }
 
         stage('Generate Ansible Inventory') {
-    steps {
-        sh './generate_inventory.sh'
-    }
-}
+            steps {
+                sh './generate_inventory.sh'
+            }
+        }
 
-        
         stage('Wait for EC2') {
             steps {
                 echo 'Waiting 60 seconds for EC2 instance to be ready...'
