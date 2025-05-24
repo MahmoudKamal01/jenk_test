@@ -12,3 +12,7 @@ resource "aws_instance" "example" {
     Name = "Jenkins-Terraform-Instance"
   }
 }
+
+output "public_ip" {
+  value = aws_instance.example.public_ip
+}
