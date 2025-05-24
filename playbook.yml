@@ -1,1 +1,13 @@
+- name: Run script on EC2
+  hosts: ec2
+  become: yes
+  tasks:
+    - name: Copy script
+      copy:
+        src: script.sh
+        dest: /tmp/yourscript.sh
+        mode: '0755'
+
+    - name: Execute script
+      command: bash echo "Hello world"
 
