@@ -10,7 +10,24 @@ pipeline {
     stages {
         stage('Checkout & Prepare') {
             steps {
-                checkout scm 
+                checkout scm
+                sh 'ls -la scripts/'  // Verify script exists
+            }
+        }
+
+        stage('Verify EC2 Connectivity') {
+            steps {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'jenkins-ssh-key',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    sh """
+                    # Test basic SSH connection first
+                    echo "Testing SSH connection to ${EC2_IP}"
+                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} 'echo "SSH connection successful!"'
+                    """
+                }
             }
         }
 
@@ -22,8 +39,13 @@ pipeline {
                     usernameVariable: 'SSH_USER'
                 )]) {
                     sh """
-                    # Copy script to EC2
-                    scp -o StrictHostKeyChecking=no -i ${SSH_KEY} ./scripts/deploy.sh ${SSH_USER}@${EC2_IP}:/tmp/
+                    # Copy script with verbose output
+                    echo "Transferring deploy.sh to ${EC2_IP}:/tmp/"
+                    scp -v -o StrictHostKeyChecking=no -i ${SSH_KEY} ./scripts/deploy.sh ${SSH_USER}@${EC2_IP}:/tmp/
+                    
+                    # Verify transfer
+                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} \
+                        'ls -la /tmp/deploy.sh && file /tmp/deploy.sh'
                     """
                 }
             }
@@ -37,9 +59,14 @@ pipeline {
                     usernameVariable: 'SSH_USER'
                 )]) {
                     sh """
-                    # Make script executable and run it
+                    # Execute with detailed logging
+                    echo "Executing script on ${EC2_IP}"
                     ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} \
-                        'chmod +x /tmp/deploy.sh && /tmp/deploy.sh'
+                        'chmod +x /tmp/deploy.sh && /tmp/deploy.sh > /tmp/deploy.log 2>&1'
+                    
+                    # Get execution logs
+                    echo "Script output:"
+                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} 'cat /tmp/deploy.log'
                     """
                 }
             }
@@ -48,11 +75,19 @@ pipeline {
 
     post {
         always {
-            echo "Script execution completed. Check EC2 logs if needed."
+            echo "Pipeline execution completed"
+            cleanWs()  // Clean workspace when done
+        }
+        success {
+            echo "Success! Script executed on ${EC2_IP}"
+            // Add success notification here
         }
         failure {
-            // Add failure notifications (Slack/Email)
-            echo "Pipeline failed!"
+            echo "Pipeline failed! Check these areas:"
+            echo "1. SSH key permissions (chmod 600)"
+            echo "2. EC2 security group rules"
+            echo "3. Terraform output values"
+            // Add failure notification here
         }
     }
 }
