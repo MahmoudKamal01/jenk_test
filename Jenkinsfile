@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AWS_REGION = 'us-east-1'
-        ANSIBLE_HOST_KEY_CHECKING = 'False'  # Disable host key verification
+        ANSIBLE_HOST_KEY_CHECKING = 'False'
     }
 
     stages {
