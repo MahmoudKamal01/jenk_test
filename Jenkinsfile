@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         AWS_REGION = 'us-east-1'
+        ANSIBLE_HOST_KEY_CHECKING = 'False'  # Disable host key verification
     }
 
     stages {
@@ -10,7 +11,9 @@ pipeline {
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws_creds'
+                    credentialsId: 'aws_creds',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
                     dir('terraform') {
                         sh 'terraform init'
@@ -32,8 +35,10 @@ pipeline {
                 withCredentials([file(credentialsId: 'jenkins-ssh-key', variable: 'SSH_KEY')]) {
                     dir('ansible') {
                         sh """
-                        chmod 600 ${SSH_KEY}
-                        ansible-playbook -i inventory.ini playbook.yml --private-key ${SSH_KEY}
+                        mkdir -p ~/.ssh
+                        cp ${SSH_KEY} ~/.ssh/jenk.pem
+                        chmod 600 ~/.ssh/jenk.pem
+                        ansible-playbook -i inventory.ini playbook.yml --private-key ~/.ssh/jenk.pem -u ec2-user
                         """
                     }
                 }
@@ -44,6 +49,9 @@ pipeline {
     post {
         always {
             echo 'Pipeline finished.'
+            dir('terraform') {
+                sh 'terraform output'  # Show final outputs
+            }
         }
     }
 }
