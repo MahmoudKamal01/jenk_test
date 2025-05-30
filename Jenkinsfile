@@ -11,22 +11,48 @@ pipeline {
         stage('Checkout & Prepare') {
             steps {
                 checkout scm
-                sh 'ls -la scripts/'  // Verify script exists
+                script {
+                    // Verify script exists and is executable
+                    if (!fileExists('scripts/deploy.sh')) {
+                        error("deploy.sh not found in scripts directory")
+                    }
+                    sh 'chmod +x scripts/deploy.sh && ls -la scripts/'
+                }
             }
         }
 
-        stage('Verify EC2 Connectivity') {
+        stage('Debug SSH Setup') {
             steps {
                 withCredentials([sshUserPrivateKey(
                     credentialsId: 'jenkins-ssh-key',
                     keyFileVariable: 'SSH_KEY',
                     usernameVariable: 'SSH_USER'
                 )]) {
-                    sh """
-                    # Test basic SSH connection first
-                    echo "Testing SSH connection to ${EC2_IP}"
-                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} 'echo "SSH connection successful!"'
-                    """
+                    script {
+                        // Windows-compatible permission check
+                        if (isUnix()) {
+                            sh "chmod 600 ${SSH_KEY}"
+                        } else {
+                            bat """
+                            icacls ${SSH_KEY} /reset
+                            icacls ${SSH_KEY} /grant:r "%USERNAME%":F
+                            icacls ${SSH_KEY} /inheritance:r
+                            """
+                        }
+                        
+                        // Enhanced connection test with timeout
+                        timeout(time: 1, unit: 'MINUTES') {
+                            sh """
+                            echo "--- SSH DEBUG INFORMATION ---"
+                            echo "Key path: ${SSH_KEY}"
+                            ls -la ${SSH_KEY}
+                            echo "First 3 lines of key:"
+                            head -n 3 ${SSH_KEY}
+                            echo "Testing connection to ${EC2_IP}"
+                            ssh -vvv -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} 'echo "Connection successful"'
+                            """
+                        }
+                    }
                 }
             }
         }
@@ -38,15 +64,18 @@ pipeline {
                     keyFileVariable: 'SSH_KEY',
                     usernameVariable: 'SSH_USER'
                 )]) {
-                    sh """
-                    # Copy script with verbose output
-                    echo "Transferring deploy.sh to ${EC2_IP}:/tmp/"
-                    scp -v -o StrictHostKeyChecking=no -i ${SSH_KEY} ./scripts/deploy.sh ${SSH_USER}@${EC2_IP}:/tmp/
-                    
-                    # Verify transfer
-                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} \
-                        'ls -la /tmp/deploy.sh && file /tmp/deploy.sh'
-                    """
+                    retry(3) {
+                        timeout(time: 2, unit: 'MINUTES') {
+                            sh """
+                            echo "Transferring script..."
+                            scp -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ${SSH_KEY} ./scripts/deploy.sh ${SSH_USER}@${EC2_IP}:/tmp/
+                            
+                            echo "Verifying transfer..."
+                            ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} \
+                                'test -f /tmp/deploy.sh && echo "File exists" || echo "File missing"'
+                            """
+                        }
+                    }
                 }
             }
         }
@@ -58,16 +87,27 @@ pipeline {
                     keyFileVariable: 'SSH_KEY',
                     usernameVariable: 'SSH_USER'
                 )]) {
-                    sh """
-                    # Execute with detailed logging
-                    echo "Executing script on ${EC2_IP}"
-                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} \
-                        'chmod +x /tmp/deploy.sh && /tmp/deploy.sh > /tmp/deploy.log 2>&1'
-                    
-                    # Get execution logs
-                    echo "Script output:"
-                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} 'cat /tmp/deploy.log'
-                    """
+                    script {
+                        try {
+                            def output = sh(script: """
+                            ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} \
+                                'chmod +x /tmp/deploy.sh && /tmp/deploy.sh > /tmp/deploy.log 2>&1; cat /tmp/deploy.log'
+                            """, returnStdout: true).trim()
+                            
+                            echo "Script Output:\n${output}"
+                            
+                            // Fail pipeline if script returns non-zero
+                            if (output.contains("ERROR") || output.contains("failed")) {
+                                error("Script execution reported errors")
+                            }
+                        } catch (e) {
+                            // Get full logs if execution fails
+                            sh """
+                            ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${EC2_IP} 'cat /tmp/deploy.log' || true
+                            """
+                            throw e
+                        }
+                    }
                 }
             }
         }
@@ -75,19 +115,18 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline execution completed"
-            cleanWs()  // Clean workspace when done
+            echo "Pipeline execution completed - cleaning up"
+            cleanWs()
         }
         success {
-            echo "Success! Script executed on ${EC2_IP}"
-            // Add success notification here
+            slackSend(color: 'good', message: "SUCCESS: Script deployed to ${EC2_IP}")
         }
         failure {
-            echo "Pipeline failed! Check these areas:"
-            echo "1. SSH key permissions (chmod 600)"
-            echo "2. EC2 security group rules"
-            echo "3. Terraform output values"
-            // Add failure notification here
+            slackSend(color: 'danger', message: "FAILED: Pipeline ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+            archiveArtifacts artifacts: '**/deploy.log', allowEmptyArchive: true
+        }
+        unstable {
+            slackSend(color: 'warning', message: "UNSTABLE: Pipeline ${env.JOB_NAME} #${env.BUILD_NUMBER}")
         }
     }
 }
