@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'us-east-1' // or your desired region
+        AWS_REGION = 'us-east-1'
     }
 
     stages {
@@ -20,12 +20,6 @@ pipeline {
             }
         }
 
-        stage('Generate Ansible Inventory') {
-            steps {
-                sh './generate_inventory.sh'
-            }
-        }
-
         stage('Wait for EC2') {
             steps {
                 echo 'Waiting 60 seconds for EC2 instance to be ready...'
@@ -35,8 +29,13 @@ pipeline {
 
         stage('Ansible Setup and Execute') {
             steps {
-                dir('ansible') {
-                    sh 'ansible-playbook -i inventory.ini playbook.yml'
+                withCredentials([file(credentialsId: 'jenkins-ssh-key', variable: 'SSH_KEY')]) {
+                    dir('ansible') {
+                        sh """
+                        chmod 600 ${SSH_KEY}
+                        ansible-playbook -i inventory.ini playbook.yml --private-key ${SSH_KEY}
+                        """
+                    }
                 }
             }
         }
