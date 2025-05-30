@@ -50,7 +50,7 @@ pipeline {
         always {
             echo 'Pipeline finished.'
             dir('terraform') {
-                sh 'terraform output'  # Show final outputs
+                sh 'terraform output'
             }
         }
     }
